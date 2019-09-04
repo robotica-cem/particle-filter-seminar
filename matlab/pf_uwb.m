@@ -1,0 +1,158 @@
+function [] = pf_uwb ()
+% Example of estimation of position in 2D using a UWB
+% beacon. 
+%
+% This code is based on the code by Andreas  Lindholm (formerly
+% Svensson) of Uppsala University. 
+
+
+% Just call PF (without any arguments) to run the animation
+% 
+%
+% This is the matlab code behind the movie "Particle Filter Explained
+% without Equations", which can be found at http://youtu.be/aUkBa1zMKv4
+% Written by Andreas Svensson, October 2013
+% Updated by Andreas Svensson, February 2013, fixing a coding error in the
+% 'propagation-update' of the weights
+% andreas.svensson@it.uu.se
+% http://www.it.uu.se/katalog/andsv164
+% 
+% The code is provided as is, and I take no responsibility for what this
+% code may do to you, your computer or someone else.
+%
+% This code is licensed under a
+% Creative Commons Attribution-ShareAlike 3.0 Unported License.
+% http://creativecommons.org/licenses/by-sa/3.0/
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Setup and initialization %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Beacon position
+uwb_beacon = [0;0];
+% Velocity of the robot
+velocity = [-0.3;0];
+% Set starting position of robot
+robot_pos = [8;4];
+
+% Setting the random seed, so the same example can be run several times
+s = RandStream('mt19937ar','Seed',1);
+RandStream.setGlobalStream(s);
+
+% Some uncertainty parameters
+measurementNoiseStdev = 0.1; velocityStdev = 1;
+
+
+
+% Number of particles
+N = 200;
+
+% Plot the beacon and robot
+figh=figure(1)
+clf
+plot( uwb_beacon(1), uwb_beacon(2), 'ro', 'markersize',  14);
+hold on
+robot_plot_h = plot_robot(robot_pos(1), robot_pos(2), figh);
+
+pause(1)
+
+
+%%%%%%%%%%%%%%%%%%%%%%%
+%%% Begin filtering %%%
+%%%%%%%%%%%%%%%%%%%%%%%
+
+% Generate particles
+particles = rand(2,N)*40-20;
+% Initialize particle weights
+w = 1/N*ones(N,1);
+
+% Plot particles
+particleHandle = plot_particles(particles, w, figh);
+pause(1)
+
+FirstRun = 1;
+
+w_first =  w;
+for t = 1:60
+    % Generate distance measurements (with gaussian measurement noise)
+    robotMeasDist = sqrt(sum((robot_pos - uwb_beacon).^2)) + randn*measurementNoiseStdev;
+    
+    % Distance to each particle
+    particle_dists = sqrt(sum((particles - uwb_beacon).^2,1))';
+    % Evaluate measurements (i.e., create weights) using the pdf for the normal distribution
+    w = w.*(1/(sqrt(2*pi)*measurementNoiseStdev)*exp(-(particle_dists-robotMeasDist).^2/(2*measurementNoiseStdev^2)));
+    
+    % Normalize particle weigths
+    w = w/sum(w);
+
+    if FirstRun
+        
+        % Sort out some particles to evaluate them "in public" the first
+        % run (as in the movie)
+        [~, order] = sort(w,'descend');
+        pmax = order(1);
+        pmaxi = setdiff(1:N,pmax);
+        particleH1 = plot_particles(particles(:, pmax), w(pmax), figh,'m');
+        pause(1)
+        
+        pmax2 = order(2);
+        delete(particleH1)
+        particleH2 = plot_particles(particles(:,pmax2), w(pmax2), figh,'b');
+        pause(1)
+        delete(particleH2)
+        
+        % Plot all weighted particles    
+        delete(particleHandle)
+        particleHandle = plot_particles(particles,w, figh);
+        pause(1)
+        %break
+    end
+
+    % Resample the particles
+    u = rand(N,1); wc = cumsum(w);
+    [~,ind1] = sort([u;wc]); ind=find(ind1<=N)-(0:N-1)';
+    particles=particles(:,ind); w=ones(N,1)./N;
+
+    delete(particleHandle);
+    particleHandle = plot_particles(particles, w,figh);
+    pause(1)
+
+    % Time propagation
+    velocityNoise = velocityStdev*randn(size(particles));
+    particles = particles + velocity + velocityNoise;
+    
+    % Update weights
+    % w = w, since the update in the previous step is done using our motion model, so the
+    % information is already contained in that update.
+    
+    % Move and plot moved robot
+    robot_pos  =  robot_pos + velocity;
+    delete(robot_plot_h);
+    robot_plot_h = plot_robot(robot_pos(1), robot_pos(2),figh);
+    
+    if FirstRun
+        % Plot updated particles
+        delete(particleHandle)
+        particleHandle = plot_particles(particles, w, figh);
+        pause(1)
+    end
+
+    FirstRun = 0;
+end
+end
+
+function [ h ] = plot_robot(xpos,ypos,fignr )
+    figure(fignr)
+    h = plot(xpos,ypos, 'go', 'markersize',  14);
+end
+
+function h = plot_particles(particles, w, fignr, co)
+    if nargin < 4
+        co = 'k';
+    end
+    % Some parameters for plotting the particles
+    m = 1000; k = 0.0001;
+    figure(fignr)
+    h = scatter(particles(1,:)',particles(2,:)', m*(w+k), ...
+            'k','filled');
+end
